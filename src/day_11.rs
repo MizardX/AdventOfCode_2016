@@ -165,6 +165,7 @@ struct State {
     count: usize,
     round: u8,
 }
+
 impl State {
     fn from_facility(facility: &Facility) -> Self {
         let mut bits = 0;
