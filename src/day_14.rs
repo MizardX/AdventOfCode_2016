@@ -185,13 +185,11 @@ impl Iterator for PasswordGenerator {
             }
             let hash1 = self.slow.next()?;
             let hash2 = self.fast.next()?;
-            let mut to_yield = None;
-            if let Some(nib3) =
-                Chunked::new(Nibs::new(&hash1)).find_map(|(n, nib)| (n >= 3).then_some(nib))
-                && self.verifications[nib3 as usize] > 0
-            {
-                to_yield = Some((nib3, self.index));
-            }
+            let to_yield = Chunked::new(Nibs::new(&hash1))
+                .find(|&(n, _)| n >= 3)
+                .and_then(|(_, nib3)| {
+                    (self.verifications[nib3 as usize] > 0).then_some((nib3, self.index))
+                });
             for nib5 in
                 Chunked::new(Nibs::new(&hash2)).filter_map(|(n, nib)| (n >= 5).then_some(nib))
             {
