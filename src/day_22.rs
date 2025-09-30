@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
 use std::num::ParseIntError;
-use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
 use thiserror::Error;
+
+use crate::utils::{Grid, TilePath};
 
 #[derive(Debug, Error)]
 enum ParseError {
@@ -78,26 +78,26 @@ fn part_1(nodes: &[NetworkNode]) -> u32 {
 fn part_2(nodes: &[NetworkNode]) -> usize {
     let grid: Grid<Tile> = nodes.try_into().unwrap();
     let empty_pos = grid.find_pos(|&tile| tile == Tile::Empty).unwrap();
-    let target_pos = (0, grid.cols - 1);
+    let target_pos = (0, grid.cols() - 1);
     let front_of_target = (target_pos.0, target_pos.1 - 1);
     let goal_pos = (0, 0);
-    let move_empty_to_front_of_target = grid.shortest_path(empty_pos, front_of_target);
-    let move_target_to_goal = grid.shortest_path(target_pos, goal_pos);
+    let move_empty_to_front_of_target = grid.shortest_path(empty_pos, front_of_target).unwrap();
+    let move_target_to_goal = grid.shortest_path(target_pos, goal_pos).unwrap();
     move_empty_to_front_of_target + 5 * (move_target_to_goal - 1) + 1
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Tile {
     Blocker,
     Empty,
+    #[default]
     Slidable,
 }
 
-#[derive(Debug, Clone)]
-struct Grid<T> {
-    data: Vec<T>,
-    rows: usize,
-    cols: usize,
+impl TilePath for Tile {
+    fn is_passable(&self) -> bool {
+        !matches!(self, Self::Blocker)
+    }
 }
 
 impl TryFrom<&[NetworkNode]> for Grid<Tile> {
@@ -106,89 +106,16 @@ impl TryFrom<&[NetworkNode]> for Grid<Tile> {
     fn try_from(value: &[NetworkNode]) -> Result<Self, Self::Error> {
         let rows = value.iter().map(|n| n.row).max().ok_or(())? + 1;
         let cols = value.iter().map(|n| n.col).max().ok_or(())? + 1;
-        let mut data = vec![Tile::Slidable; rows * cols];
+        let mut grid = Self::new(rows, cols);
         let min_size = value.iter().map(|n| n.size).min().ok_or(())?;
         for node in value {
-            data[cols * node.row + node.col] = match node {
+            grid[(node.row, node.col)] = match node {
                 NetworkNode { used: 0, .. } => Tile::Empty,
                 NetworkNode { used, .. } if *used > min_size => Tile::Blocker,
                 _ => Tile::Slidable,
-            }
+            };
         }
-        Ok(Self { data, rows, cols })
-    }
-}
-
-impl<T> Grid<T> {
-    fn new(rows: usize, cols: usize) -> Self
-    where
-        T: Default + Copy,
-    {
-        let data = vec![T::default(); rows * cols];
-        Self { data, rows, cols }
-    }
-
-    fn find_pos<P>(&self, predicate: P) -> Option<(usize, usize)>
-    where
-        P: FnMut(&T) -> bool,
-    {
-        #[allow(clippy::cast_possible_truncation)]
-        self.data
-            .iter()
-            .position(predicate)
-            .map(|index| (index / self.cols, index % self.cols))
-    }
-}
-
-impl Grid<Tile> {
-    fn shortest_path(&self, source: (usize, usize), target: (usize, usize)) -> usize {
-        let mut visited = Grid::<bool>::new(self.rows, self.cols);
-        let mut pending = VecDeque::new();
-        pending.push_back(source);
-        let mut dist = 0;
-        while !pending.is_empty() {
-            for _ in 0..pending.len() {
-                let pos = pending.pop_front().unwrap();
-                if visited[pos] {
-                    continue;
-                }
-                visited[pos] = true;
-                if pos == target {
-                    return dist;
-                }
-                self.enqueue_neighbors(pos, &mut pending);
-            }
-            dist += 1;
-        }
-        0
-    }
-
-    fn enqueue_neighbors(&self, pos: (usize, usize), queue: &mut VecDeque<(usize, usize)>) {
-        queue.extend(
-            [
-                pos.0.checked_sub(1).map(|r1| (r1, pos.1)),
-                pos.1.checked_sub(1).map(|c1| (pos.0, c1)),
-                (pos.0 + 1 < self.rows).then_some((pos.0 + 1, pos.1)),
-                (pos.1 + 1 < self.cols).then_some((pos.0, pos.1 + 1)),
-            ]
-            .into_iter()
-            .flatten()
-            .filter(|&pos1| self[pos1] != Tile::Blocker),
-        );
-    }
-}
-
-impl<T> Index<(usize, usize)> for Grid<T> {
-    type Output = T;
-
-    fn index(&self, (row, col): (usize, usize)) -> &Self::Output {
-        &self.data[row * self.cols + col]
-    }
-}
-
-impl<T> IndexMut<(usize, usize)> for Grid<T> {
-    fn index_mut(&mut self, (row, col): (usize, usize)) -> &mut Self::Output {
-        &mut self.data[row * self.cols + col]
+        Ok(grid)
     }
 }
 
@@ -242,8 +169,8 @@ mod tests {
     fn test_grid() {
         let nodes = parse(EXAMPLE).unwrap();
         let grid: Grid<Tile> = nodes.as_slice().try_into().unwrap();
-        assert_eq!(grid.rows, 3);
-        assert_eq!(grid.cols, 3);
+        assert_eq!(grid.rows(), 3);
+        assert_eq!(grid.cols(), 3);
         let expected = [
             [Tile::Slidable, Tile::Slidable, Tile::Slidable],
             [Tile::Slidable, Tile::Empty, Tile::Slidable],
