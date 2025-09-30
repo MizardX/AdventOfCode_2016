@@ -1,3 +1,5 @@
+#![allow(unused, reason = "Library functions might or might not be used depending on each puzzle.")]
+
 use std::collections::VecDeque;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
@@ -29,6 +31,16 @@ impl<T> Grid<T> {
             .iter()
             .position(predicate)
             .map(|index| (index / self.cols, index % self.cols))
+    }
+
+    #[must_use]
+    pub const fn rows(&self) -> usize {
+        self.rows
+    }
+
+    #[must_use]
+    pub const fn cols(&self) -> usize {
+        self.cols
     }
 }
 
@@ -100,7 +112,7 @@ where
                 grid[(r, c)] = MaybeUninit::new(tile);
             }
         }
-        Ok(unsafe { std::mem::transmute(grid) })
+        Ok(unsafe { std::mem::transmute::<Grid<MaybeUninit<T>>, Self>(grid) })
     }
 }
 
