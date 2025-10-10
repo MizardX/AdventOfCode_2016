@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::num::ParseIntError;
-use std::ops::Add;
+use std::ops::{Add, AddAssign, Mul, MulAssign};
 use std::str::FromStr;
 
 use thiserror::Error;
@@ -15,31 +15,59 @@ enum ParseError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Turn {
-    Left(u16),
-    Right(u16),
+    Left,
+    Right,
 }
 
-impl FromStr for Turn {
-    type Err = ParseError;
+impl TryFrom<u8> for Turn {
+    type Error = ParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(if let Some(rest) = s.strip_prefix("R") {
-            Self::Right(rest.parse()?)
-        } else if let Some(rest) = s.strip_prefix("L") {
-            Self::Left(rest.parse()?)
-        } else {
-            return Err(ParseError::SyntaxError);
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            b'L' => Self::Left,
+            b'R' => Self::Right,
+            _ => return Err(ParseError::SyntaxError),
         })
     }
 }
 
+impl Mul<u16> for Turn {
+    type Output = Step;
+
+    fn mul(self, rhs: u16) -> Self::Output {
+        Step::new(self, rhs)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Step {
+    turn: Turn,
+    dist: u16,
+}
+
+impl Step {
+    const fn new(turn: Turn, dist: u16) -> Self {
+        Self { turn, dist }
+    }
+}
+
+impl FromStr for Step {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let turn = s.as_bytes()[0].try_into()?;
+        let dist = s[1..].parse()?;
+        Ok(Self { turn, dist })
+    }
+}
+
 #[aoc_generator(day1)]
-fn parse(input: &str) -> Result<Vec<Turn>, ParseError> {
+fn parse(input: &str) -> Result<Vec<Step>, ParseError> {
     input.split(", ").map(str::parse).collect()
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-enum Dir {
+enum Direction {
     #[default]
     /// -y
     North,
@@ -51,84 +79,91 @@ enum Dir {
     West,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct State {
-    x: i32,
-    y: i32,
-    dir: Dir,
+impl Mul<Turn> for Direction {
+    type Output = Self;
+
+    fn mul(self, rhs: Turn) -> Self::Output {
+        match (self, rhs) {
+            (Self::East, Turn::Left) | (Self::West, Turn::Right) => Self::North,
+            (Self::North, Turn::Right) | (Self::South, Turn::Left) => Self::East,
+            (Self::East, Turn::Right) | (Self::West, Turn::Left) => Self::South,
+            (Self::North, Turn::Left) | (Self::South, Turn::Right) => Self::West,
+        }
+    }
 }
 
-impl State {
+impl MulAssign<Turn> for Direction {
+    fn mul_assign(&mut self, rhs: Turn) {
+        *self = *self * rhs;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Position {
+    x: i32,
+    y: i32,
+    dir: Direction,
+}
+
+impl Position {
     const fn dist(self) -> u32 {
         self.x.unsigned_abs() + self.y.unsigned_abs()
     }
 }
 
-impl Add<Turn> for State {
+impl Add<Step> for Position {
     type Output = Self;
 
-    fn add(self, turn: Turn) -> Self::Output {
-        match (self.dir, turn) {
-            (Dir::North, Turn::Left(d)) | (Dir::South, Turn::Right(d)) => Self {
-                x: self.x - i32::from(d),
-                dir: Dir::West,
-                ..self
-            },
-            (Dir::North, Turn::Right(d)) | (Dir::South, Turn::Left(d)) => Self {
-                x: self.x + i32::from(d),
-                dir: Dir::East,
-                ..self
-            },
-            (Dir::East, Turn::Left(d)) | (Dir::West, Turn::Right(d)) => Self {
-                y: self.y - i32::from(d),
-                dir: Dir::North,
-                ..self
-            },
-            (Dir::East, Turn::Right(d)) | (Dir::West, Turn::Left(d)) => Self {
-                y: self.y + i32::from(d),
-                dir: Dir::South,
-                ..self
-            },
-        }
-    }
-}
-
-impl Add<Dir> for State {
-    type Output = Self;
-
-    fn add(mut self, dir: Dir) -> Self::Output {
-        match dir {
-            Dir::North => self.y -= 1,
-            Dir::East => self.x += 1,
-            Dir::South => self.y += 1,
-            Dir::West => self.x -= 1,
+    fn add(mut self, step: Step) -> Self::Output {
+        self.dir *= step.turn;
+        match self.dir {
+            Direction::North => self.y -= i32::from(step.dist),
+            Direction::East => self.x += i32::from(step.dist),
+            Direction::South => self.y += i32::from(step.dist),
+            Direction::West => self.x -= i32::from(step.dist),
         }
         self
     }
 }
 
+impl AddAssign<Direction> for Position {
+    fn add_assign(&mut self, rhs: Direction) {
+        match rhs {
+            Direction::North => self.y -= 1,
+            Direction::East => self.x += 1,
+            Direction::South => self.y += 1,
+            Direction::West => self.x -= 1,
+        }
+    }
+}
+
+impl Add<Direction> for Position {
+    type Output = Self;
+
+    fn add(mut self, dir: Direction) -> Self::Output {
+        self += dir;
+        self
+    }
+}
+
 #[aoc(day1, part1)]
-fn part_1(input: &[Turn]) -> u32 {
+fn part_1(input: &[Step]) -> u32 {
     input
         .iter()
         .copied()
-        .fold(State::default(), State::add)
+        .fold(Position::default(), Position::add)
         .dist()
 }
 
 #[aoc(day1, part2)]
-fn part_2(input: &[Turn]) -> u32 {
+fn part_2(input: &[Step]) -> u32 {
     let mut seen = HashSet::new();
-    let mut state = State::default();
+    let mut state = Position::default();
     seen.insert((0, 0));
-    for &turn in input {
-        let d;
-        (d, state) = match turn {
-            Turn::Left(d) => (d, state + Turn::Left(0)),
-            Turn::Right(d) => (d, state + Turn::Right(0)),
-        };
-        for _ in 1..=d {
-            state = state + state.dir;
+    for &step in input {
+        state.dir *= step.turn;
+        for _ in 1..=step.dist {
+            state += state.dir;
             if !seen.insert((state.x, state.y)) {
                 return state.dist();
             }
@@ -142,11 +177,11 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[test_case("R2, L3" => &[Turn::Right(2), Turn::Left(3)][..])]
-    #[test_case("R2, R2, R2" => &[Turn::Right(2), Turn::Right(2), Turn::Right(2)][..])]
-    #[test_case("R5, L5, R5, R3" => &[Turn::Right(5), Turn::Left(5), Turn::Right(5), Turn::Right(3)][..])]
-    #[test_case("R8, R4, R4, R8" => &[Turn::Right(8), Turn::Right(4), Turn::Right(4), Turn::Right(8)][..])]
-    fn test_parse(input: &str) -> Vec<Turn> {
+    #[test_case("R2, L3" => &[Turn::Right * 2, Turn::Left * 3][..])]
+    #[test_case("R2, R2, R2" => &[Turn::Right * 2, Turn::Right * 2, Turn::Right * 2][..])]
+    #[test_case("R5, L5, R5, R3" => &[Turn::Right * 5, Turn::Left * 5, Turn::Right * 5, Turn::Right * 3][..])]
+    #[test_case("R8, R4, R4, R8" => &[Turn::Right * 8, Turn::Right * 4, Turn::Right * 4, Turn::Right * 8][..])]
+    fn test_parse(input: &str) -> Vec<Step> {
         parse(input).unwrap()
     }
 
