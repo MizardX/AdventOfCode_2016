@@ -102,13 +102,12 @@ fn execute<const R: usize, const C: usize>(instructions: &[Instruction]) -> [[bo
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = "
-rect 3x2
-rotate column x=1 by 1
-rotate row y=0 by 4
-rotate column x=1 by 1
-"
-    .trim_ascii();
+    const EXAMPLE: &str = "\
+        rect 3x2\n\
+        rotate column x=1 by 1\n\
+        rotate row y=0 by 4\n\
+        rotate column x=1 by 1\
+    ";
 
     #[test]
     fn test_parse() {
