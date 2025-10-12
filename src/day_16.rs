@@ -67,15 +67,11 @@ mod tests {
     fn test_curve() {
         let curve = parse(b"10000");
 
-        let result = unsafe {
-            String::from_utf8_unchecked(
-                (0..23)
-                    .map(|i| if curve.get(i) { b'1' } else { b'0' })
-                    .collect::<Vec<_>>(),
-            )
-        };
+        let result = (0..23)
+            .map(|i| if curve.get(i) { b'1' } else { b'0' })
+            .collect::<Vec<_>>();
 
-        assert_eq!(result, "10000011110010000111110");
+        assert_eq!(result, b"10000011110010000111110");
     }
 
     #[test]
