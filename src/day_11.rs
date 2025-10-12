@@ -377,13 +377,13 @@ fn solve(state: State) -> u8 {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = "
-The first floor contains a hydrogen-compatible microchip and a lithium-compatible microchip.
-The second floor contains a hydrogen generator.
-The third floor contains a lithium generator.
-The fourth floor contains nothing relevant.
-"
-    .trim_ascii();
+    const EXAMPLE: &str = "\
+        The first floor contains a hydrogen-compatible microchip \
+          and a lithium-compatible microchip.\n\
+        The second floor contains a hydrogen generator.\n\
+        The third floor contains a lithium generator.\n\
+        The fourth floor contains nothing relevant.\
+    ";
 
     #[test]
     fn test_parse() {
