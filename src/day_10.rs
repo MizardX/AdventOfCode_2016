@@ -245,15 +245,14 @@ fn count_bots_and_outputs(instructions: &[Instruction]) -> (usize, usize) {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = "
-value 5 goes to bot 2
-bot 2 gives low to bot 1 and high to bot 0
-value 3 goes to bot 1
-bot 1 gives low to output 1 and high to bot 0
-bot 0 gives low to output 2 and high to output 0
-value 2 goes to bot 2
-"
-    .trim_ascii();
+    const EXAMPLE: &str = "\
+        value 5 goes to bot 2\n\
+        bot 2 gives low to bot 1 and high to bot 0\n\
+        value 3 goes to bot 1\n\
+        bot 1 gives low to output 1 and high to bot 0\n\
+        bot 0 gives low to output 2 and high to output 0\n\
+        value 2 goes to bot 2\
+    ";
 
     #[test]
     fn test_parse() {
