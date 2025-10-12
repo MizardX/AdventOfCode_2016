@@ -23,17 +23,8 @@ impl Triangle {
         Self { a, b, c }
     }
     const fn is_possible(&self) -> bool {
-        let (mut a, mut b, mut c) = (self.a, self.b, self.c);
-        if a > b {
-            (a, b) = (b, a);
-        }
-        if b > c {
-            (b, c) = (c, b);
-        }
-        if a > b {
-            (a, b) = (b, a);
-        }
-        a + b > c
+        let &Self { a, b, c } = self;
+        (a + b > c) & (a + c > b) & (b + c > a)
     }
 
     const fn transpose(first: Self, second: Self, third: Self) -> [Self; 3] {
@@ -51,7 +42,7 @@ impl FromStr for Triangle {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // "  123  456  789"
         //  012345678901234
-        let mut words = s.trim_ascii().split_ascii_whitespace();
+        let mut words = s.split_ascii_whitespace();
         let first = words.next().ok_or(ParseError::SyntaxError)?;
         let second = words.next().ok_or(ParseError::SyntaxError)?;
         let third = words.next().ok_or(ParseError::SyntaxError)?;
@@ -79,8 +70,11 @@ fn part_1(input: &[Triangle]) -> usize {
 #[aoc(day3, part2)]
 fn part_2(input: &[Triangle]) -> usize {
     input
-        .chunks_exact(3)
-        .flat_map(|arr| Triangle::transpose(arr[0], arr[1], arr[2]))
+        .iter()
+        .zip(&input[1..])
+        .zip(&input[2..])
+        .step_by(3)
+        .flat_map(|((&a, &b), &c)| Triangle::transpose(a, b, c))
         .filter(Triangle::is_possible)
         .count()
 }
@@ -90,29 +84,29 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    const EXAMPLE1: &str = "
-5 10 25
-"
-    .trim_ascii();
+    const EXAMPLE1: &str = "\
+        5 10 25\
+    ";
 
-    const EXAMPLE2: &str = "
-101 301 501
-102 302 502
-103 303 503
-201 401 601
-202 402 602
-203 403 603
-"
-    .trim_ascii();
+    const EXAMPLE2: &str = "\
+        101 301 501\n\
+        102 302 502\n\
+        103 303 503\n\
+        201 401 601\n\
+        202 402 602\n\
+        203 403 603\
+    ";
 
-    #[test_case(EXAMPLE1 => &[Triangle::new(5,10,25)][..]; "Parse example 1")]
+    #[test_case(EXAMPLE1 => &[
+        Triangle::new(5, 10, 25),
+    ][..]; "Parse example 1")]
     #[test_case(EXAMPLE2 => &[
-        Triangle::new(101,301,501),
-        Triangle::new(102,302,502),
-        Triangle::new(103,303,503),
-        Triangle::new(201,401,601),
-        Triangle::new(202,402,602),
-        Triangle::new(203,403,603),
+        Triangle::new(101, 301, 501),
+        Triangle::new(102, 302, 502),
+        Triangle::new(103, 303, 503),
+        Triangle::new(201, 401, 601),
+        Triangle::new(202, 402, 602),
+        Triangle::new(203, 403, 603),
     ][..]; "Parse example 2")]
     fn test_parse(input: &str) -> Vec<Triangle> {
         parse(input).unwrap()
