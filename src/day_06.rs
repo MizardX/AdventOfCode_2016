@@ -38,25 +38,24 @@ fn decode_message<K: Ord>(input: &str, cmp: fn(usize) -> K) -> String {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = "
-eedadn
-drvtee
-eandsr
-raavrd
-atevrs
-tsrnev
-sdttsa
-rasrtv
-nssdts
-ntnada
-svetve
-tesnvt
-vntsnd
-vrdear
-dvrsen
-enarar
-"
-    .trim_ascii();
+    const EXAMPLE: &str = "\
+        eedadn\n\
+        drvtee\n\
+        eandsr\n\
+        raavrd\n\
+        atevrs\n\
+        tsrnev\n\
+        sdttsa\n\
+        rasrtv\n\
+        nssdts\n\
+        ntnada\n\
+        svetve\n\
+        tesnvt\n\
+        vntsnd\n\
+        vrdear\n\
+        dvrsen\n\
+        enarar\
+    ";
 
     #[test]
     fn test_part_1() {
@@ -64,7 +63,7 @@ enarar
 
         assert_eq!(result, "easter");
     }
-    
+
     #[test]
     fn test_part_2() {
         let result = part_2(EXAMPLE);
