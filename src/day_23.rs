@@ -262,9 +262,8 @@ mod tests {
         tgl a\n\
         cpy 1 a\n\
         dec a\n\
-        dec a\n\
-    "
-    .trim_ascii();
+        dec a\
+    ";
 
     #[test]
     fn test_parse() {
