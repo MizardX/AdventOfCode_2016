@@ -21,15 +21,6 @@ struct Room {
 use std::cmp::Reverse;
 
 impl Room {
-    #[allow(unused, reason = "Used in tests")]
-    pub fn new(name: &str, sector: u64, checksum: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            sector,
-            checksum: checksum.to_string(),
-        }
-    }
-
     fn valid_checksum(&self) -> bool {
         let mut counts = [0; 26];
         for ch in self.name.bytes() {
@@ -113,40 +104,46 @@ fn part_2(input: &[Room]) -> u64 {
 mod tests {
     use super::*;
 
-    const EXAMPLE1: &str = "
-aaaaa-bbb-z-y-x-123[abxyz]
-a-b-c-d-e-f-g-h-987[abcde]
-not-a-real-room-404[oarel]
-totally-real-room-200[decoy]
-"
-    .trim_ascii();
+    const EXAMPLE1: &str = "\
+        aaaaa-bbb-z-y-x-123[abxyz]\n\
+        a-b-c-d-e-f-g-h-987[abcde]\n\
+        not-a-real-room-404[oarel]\n\
+        totally-real-room-200[decoy]\
+    ";
 
-    const EXAMPLE2: &str = "
-qzmt-zixmtkozy-ivhz-343
-"
-    .trim_ascii();
+    const EXAMPLE2: &str = "\
+        qzmt-zixmtkozy-ivhz-343\
+    ";
+
+    macro_rules! room {
+        ($name:literal, $sector:literal, $checksum:literal) => {
+            Room {
+                name: String::from($name),
+                sector: $sector,
+                checksum: String::from($checksum),
+            }
+        };
+    }
 
     #[test]
     fn test_parse_1() {
         let result = parse(EXAMPLE1).unwrap();
-        let expected = &[
-            Room::new("aaaaa-bbb-z-y-x", 123, "abxyz"),
-            Room::new("a-b-c-d-e-f-g-h", 987, "abcde"),
-            Room::new("not-a-real-room", 404, "oarel"),
-            Room::new("totally-real-room", 200, "decoy"),
-        ][..];
-
-        assert_eq!(result, expected);
+        assert_eq!(
+            result,
+            [
+                room!("aaaaa-bbb-z-y-x", 123, "abxyz"),
+                room!("a-b-c-d-e-f-g-h", 987, "abcde"),
+                room!("not-a-real-room", 404, "oarel"),
+                room!("totally-real-room", 200, "decoy"),
+            ]
+        );
     }
 
     #[test]
     fn test_parse_2() {
         let result = parse(EXAMPLE2).unwrap();
-        let expected = &[
-            Room::new("qzmt-zixmtkozy-ivhz", 343, ""),
-        ][..];
 
-        assert_eq!(result, expected);
+        assert_eq!(result, [room!("qzmt-zixmtkozy-ivhz", 343, "")]);
     }
 
     #[test]
