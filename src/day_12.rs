@@ -175,15 +175,14 @@ fn part_2(instructions: &[Instruction]) -> i64 {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = "
-cpy 41 a
-inc a
-inc a
-dec a
-jnz a 2
-dec a
-"
-    .trim_ascii();
+    const EXAMPLE: &str = "\
+        cpy 41 a\n\
+        inc a\n\
+        inc a\n\
+        dec a\n\
+        jnz a 2\n\
+        dec a\
+    ";
 
     #[test]
     fn test_parse() {
