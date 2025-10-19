@@ -14,28 +14,62 @@ enum ParseError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Instruction {
+    /// value .. goes to ..
     Seed(Seed),
+    /// bot .. gives low to .. and high to ..
     Bot(Bot),
 }
 
+impl FromStr for Instruction {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(if let Some(rest) = s.strip_prefix("bot ") {
+            let (id, rest) = rest
+                .split_once(" gives low to ")
+                .ok_or(ParseError::SyntaxError)?;
+            let (low_to, high_to) = rest
+                .split_once(" and high to ")
+                .ok_or(ParseError::SyntaxError)?;
+            Self::Bot(Bot {
+                id: id.parse()?,
+                low_to: low_to.parse()?,
+                high_to: high_to.parse()?,
+            })
+        } else if let Some(rest) = s.strip_prefix("value ") {
+            let (value, value_to) = rest
+                .split_once(" goes to ")
+                .ok_or(ParseError::SyntaxError)?;
+            Self::Seed(Seed {
+                value: value.parse()?,
+                value_to: value_to.parse()?,
+            })
+        } else {
+            return Err(ParseError::SyntaxError);
+        })
+    }
+}
+
+/// value `value` goes to `value_to`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Seed {
     value: u32,
-    destination: Destination,
+    value_to: Destination,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// bot `id` gives low to `low_to` and high to `high_to`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Bot {
     id: usize,
-    low: Destination,
-    high: Destination,
+    low_to: Destination,
+    high_to: Destination,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Destination {
-    #[default]
-    None,
+    /// bot `0`
     Bot(usize),
+    /// output `0`
     Output(usize),
 }
 
@@ -53,65 +87,28 @@ impl FromStr for Destination {
     }
 }
 
-impl FromStr for Instruction {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(if let Some(rest) = s.strip_prefix("bot ") {
-            let (bot, rest) = rest
-                .split_once(" gives low to ")
-                .ok_or(ParseError::SyntaxError)?;
-            let (low, high) = rest
-                .split_once(" and high to ")
-                .ok_or(ParseError::SyntaxError)?;
-            Self::Bot(Bot {
-                id: bot.parse()?,
-                low: low.parse()?,
-                high: high.parse()?,
-            })
-        } else if let Some(rest) = s.strip_prefix("value ") {
-            let (value, dest) = rest
-                .split_once(" goes to ")
-                .ok_or(ParseError::SyntaxError)?;
-            Self::Seed(Seed {
-                value: value.parse()?,
-                destination: dest.parse()?,
-            })
-        } else {
-            return Err(ParseError::SyntaxError);
-        })
-    }
+#[derive(Debug, Error)]
+enum HeapError {
+    #[error("Tried to push onto a full TwoHeap")]
+    HeapFull,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Lot<T> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TwoHeap<T> {
     Empty,
     Single(T),
     Pair(T, T),
 }
 
-impl<T: PartialEq> PartialEq for Lot<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Single(l0), Self::Single(r0)) => l0 == r0,
-            (Self::Pair(l0, l1), Self::Pair(r0, r1)) => {
-                (l0, l1) == (r0, r1) || (l0, r1) == (r1, r0)
-            }
-            (Self::Empty, Self::Empty) => true,
-            _ => false,
-        }
-    }
-}
-
-impl<T: Eq> Eq for Lot<T> {}
-
-impl<T: Copy> Lot<T> {
-    fn push(&mut self, value: T) {
+impl<T: Copy + Ord> TwoHeap<T> {
+    fn push(&mut self, value: T) -> Result<(), HeapError> {
         *self = match *self {
             Self::Empty => Self::Single(value),
-            Self::Single(x) => Self::Pair(x, value),
-            Self::Pair(_, _) => panic!("Push into pull Lot"),
+            Self::Single(x) if x <= value => Self::Pair(x, value),
+            Self::Single(x) => Self::Pair(value, x),
+            Self::Pair(_, _) => return Err(HeapError::HeapFull),
         };
+        Ok(())
     }
 
     const fn is_full(&self) -> bool {
@@ -126,13 +123,10 @@ fn parse(input: &str) -> Result<Vec<Instruction>, ParseError> {
 
 #[aoc(day10, part1)]
 fn part_1(instructions: &[Instruction]) -> usize {
-    let mut factory: Factory = instructions.into();
-    factory.simulate();
+    let mut factory = Factory::new(instructions).unwrap();
+    factory.simulate().unwrap();
     for (ix, &inv) in factory.bot_inventory.iter().enumerate() {
-        if let Lot::Pair(x, y) = inv
-            && x.min(y) == 17
-            && x.max(y) == 61
-        {
+        if inv == TwoHeap::Pair(17, 61) {
             return ix;
         }
     }
@@ -141,100 +135,112 @@ fn part_1(instructions: &[Instruction]) -> usize {
 
 #[aoc(day10, part2)]
 fn part_2(instructions: &[Instruction]) -> u32 {
-    let mut factory: Factory = instructions.into();
-    factory.simulate();
-    if let &[Lot::Single(x), Lot::Single(y), Lot::Single(z), ..] = &factory.outputs[..] {
+    let mut factory = Factory::new(instructions).unwrap();
+    factory.simulate().unwrap();
+    if let &[
+        TwoHeap::Single(x),
+        TwoHeap::Single(y),
+        TwoHeap::Single(z),
+        ..,
+    ] = &factory.outputs[..]
+    {
         x * y * z
     } else {
         0
     }
 }
 
-struct Factory {
-    bot_inventory: Vec<Lot<u32>>,
-    bots: Vec<Bot>,
-    outputs: Vec<Lot<u32>>,
-    queue: VecDeque<usize>,
+#[derive(Debug, Error)]
+enum FactoryError {
+    #[error("Trying to process bot without both inputs")]
+    UnpreparedBot,
+    #[error(transparent)]
+    HeapError(#[from] HeapError),
 }
 
-impl From<&[Instruction]> for Factory {
-    fn from(instructions: &[Instruction]) -> Self {
-        let (num_bots, num_outputs) = count_bots_and_outputs(instructions);
-        let mut bot_inventory = vec![Lot::Empty; num_bots];
-        let mut bots = vec![Bot::default(); num_bots];
-        let mut outputs = vec![Lot::Empty; num_outputs];
-        for &instr in instructions {
-            match instr {
-                Instruction::Seed(seed) => match seed.destination {
-                    Destination::Bot(n) => bot_inventory[n].push(seed.value),
-                    Destination::Output(n) => outputs[n].push(seed.value),
-                    Destination::None => (),
-                },
-                Instruction::Bot(bot) => bots[bot.id] = bot,
-            }
-        }
-        Self {
-            bot_inventory,
-            bots,
-            outputs,
-            queue: VecDeque::new(),
-        }
-    }
+#[derive(Debug, Clone)]
+struct Factory {
+    bot_inventory: Vec<TwoHeap<u32>>,
+    bots: Vec<Option<Bot>>,
+    outputs: Vec<TwoHeap<u32>>,
+    events: VecDeque<usize>,
 }
 
 impl Factory {
-    fn simulate(&mut self) {
-        self.queue.clear();
-        for (ix, &inv) in self.bot_inventory.iter().enumerate() {
-            if let Lot::Pair(_, _) = inv {
-                self.queue.push_back(ix);
+    fn new(instructions: &[Instruction]) -> Result<Self, FactoryError> {
+        let (num_bots, num_outputs) = count_bots_and_outputs(instructions);
+        let mut bot_inventory = vec![TwoHeap::Empty; num_bots];
+        let mut bots = vec![None; num_bots];
+        let mut outputs = vec![TwoHeap::Empty; num_outputs];
+        for &instr in instructions {
+            match instr {
+                Instruction::Seed(seed) => match seed.value_to {
+                    Destination::Bot(bot_ix) => bot_inventory[bot_ix].push(seed.value)?,
+                    Destination::Output(output_ix) => outputs[output_ix].push(seed.value)?,
+                },
+                Instruction::Bot(bot) => bots[bot.id] = Some(bot),
             }
         }
-        while let Some(ix) = self.queue.pop_front() {
-            let Lot::Pair(x, y) = self.bot_inventory[ix] else {
-                panic!("Trying to process bot without both values")
-            };
-            self.send_value(self.bots[ix].low, x.min(y));
-            self.send_value(self.bots[ix].high, x.max(y));
-        }
+        Ok(Self {
+            bot_inventory,
+            bots,
+            outputs,
+            events: VecDeque::new(),
+        })
     }
 
-    fn send_value(&mut self, dest: Destination, value: u32) {
+    fn simulate(&mut self) -> Result<(), FactoryError> {
+        self.events.clear();
+        for (bot_ix, &inv) in self.bot_inventory.iter().enumerate() {
+            if let TwoHeap::Pair(..) = inv {
+                self.events.push_back(bot_ix);
+            }
+        }
+        while let Some(bot_ix) = self.events.pop_front() {
+            let TwoHeap::Pair(low, high) = self.bot_inventory[bot_ix] else {
+                return Err(FactoryError::UnpreparedBot);
+            };
+            let Bot {
+                low_to, high_to, ..
+            } = self.bots[bot_ix].unwrap();
+            self.send_value(low_to, low)?;
+            self.send_value(high_to, high)?;
+        }
+        Ok(())
+    }
+
+    fn send_value(&mut self, dest: Destination, value: u32) -> Result<(), FactoryError> {
         match dest {
-            Destination::Bot(n) => {
-                self.bot_inventory[n].push(value);
-                if self.bot_inventory[n].is_full() {
-                    self.queue.push_back(n);
+            Destination::Bot(bot_ix) => {
+                self.bot_inventory[bot_ix].push(value)?;
+                if self.bot_inventory[bot_ix].is_full() {
+                    self.events.push_back(bot_ix);
                 }
             }
-            Destination::Output(n) => self.outputs[n].push(value),
-            Destination::None => (),
+            Destination::Output(output_ix) => self.outputs[output_ix].push(value)?,
         }
+        Ok(())
     }
 }
 
 fn count_bots_and_outputs(instructions: &[Instruction]) -> (usize, usize) {
     let mut num_bots = 0;
     let mut num_outputs = 0;
+    macro_rules! count_dest {
+        ($dest:expr) => {
+            match $dest {
+                Destination::Bot(bot_ix) => num_bots = num_bots.max(bot_ix + 1),
+                Destination::Output(output_ix) => num_outputs = num_outputs.max(output_ix + 1),
+            }
+        };
+    }
     for &instr in instructions {
         match instr {
-            Instruction::Seed(seed) => match seed.destination {
-                Destination::Bot(n) => num_bots = num_bots.max(n + 1),
-                Destination::Output(n) => num_outputs = num_outputs.max(n + 1),
-                Destination::None => (),
-            },
+            Instruction::Seed(seed) => count_dest!(seed.value_to),
             Instruction::Bot(bot) => {
                 num_bots = num_bots.max(bot.id + 1);
-                match bot.low {
-                    Destination::Bot(n) => num_bots = num_bots.max(n + 1),
-                    Destination::Output(n) => num_outputs = num_outputs.max(n + 1),
-                    Destination::None => (),
-                }
-                match bot.high {
-                    Destination::Bot(n) => num_bots = num_bots.max(n + 1),
-                    Destination::Output(n) => num_outputs = num_outputs.max(n + 1),
-                    Destination::None => (),
-                }
+                count_dest!(bot.low_to);
+                count_dest!(bot.high_to);
             }
         }
     }
@@ -260,30 +266,30 @@ mod tests {
         let expected = &[
             Instruction::Seed(Seed {
                 value: 5,
-                destination: Destination::Bot(2),
+                value_to: Destination::Bot(2),
             }),
             Instruction::Bot(Bot {
                 id: 2,
-                low: Destination::Bot(1),
-                high: Destination::Bot(0),
+                low_to: Destination::Bot(1),
+                high_to: Destination::Bot(0),
             }),
             Instruction::Seed(Seed {
                 value: 3,
-                destination: Destination::Bot(1),
+                value_to: Destination::Bot(1),
             }),
             Instruction::Bot(Bot {
                 id: 1,
-                low: Destination::Output(1),
-                high: Destination::Bot(0),
+                low_to: Destination::Output(1),
+                high_to: Destination::Bot(0),
             }),
             Instruction::Bot(Bot {
                 id: 0,
-                low: Destination::Output(2),
-                high: Destination::Output(0),
+                low_to: Destination::Output(2),
+                high_to: Destination::Output(0),
             }),
             Instruction::Seed(Seed {
                 value: 2,
-                destination: Destination::Bot(2),
+                value_to: Destination::Bot(2),
             }),
         ][..];
 
@@ -293,13 +299,13 @@ mod tests {
     #[test]
     fn test_factory() {
         let instructions = parse(EXAMPLE).unwrap();
-        let mut factory: Factory = instructions.as_slice().into();
-        factory.simulate();
+        let mut factory: Factory = Factory::new(&instructions).unwrap();
+        factory.simulate().unwrap();
 
         assert_eq!(
             factory.outputs,
-            &[Lot::Single(5), Lot::Single(2), Lot::Single(3)][..]
+            &[TwoHeap::Single(5), TwoHeap::Single(2), TwoHeap::Single(3)][..]
         );
-        assert_eq!(factory.bot_inventory[2], Lot::Pair(5, 2));
+        assert_eq!(factory.bot_inventory[2], TwoHeap::Pair(2, 5));
     }
 }
