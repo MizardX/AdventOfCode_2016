@@ -24,6 +24,12 @@ enum Floor {
     Fourth,
 }
 
+impl Floor {
+    const fn all() -> [Self; 4] {
+        [Self::First, Self::Second, Self::Third, Self::Fourth]
+    }
+}
+
 impl TryFrom<u32> for Floor {
     type Error = u32;
 
@@ -162,7 +168,7 @@ impl FromStr for Facility {
 #[derive(Clone, Copy)]
 struct State {
     bits: u32,
-    count: usize,
+    material_count: usize,
     round: u8,
 }
 
@@ -174,13 +180,14 @@ impl State {
         }
         Self {
             bits,
-            count: facility.materials.len(),
+            material_count: facility.materials.len(),
             round: 0,
         }
     }
 
     fn elevator_floor(self) -> Floor {
-        (self.bits >> (4 * self.count)).try_into().unwrap()
+        // elevator modeled as the (2n)'th item
+        self.floor_of(2 * self.material_count)
     }
 
     fn floor_of(self, item_index: usize) -> Floor {
@@ -188,96 +195,94 @@ impl State {
     }
 
     const fn with_elevator(self, floor: Floor) -> Self {
-        let n = self.count;
+        let n = self.material_count;
         self.with_item(2 * n, floor)
     }
 
-    const fn with_item(self, item: usize, floor: Floor) -> Self {
-        let mask = !(0b11 << (2 * item));
-        let floor_mask = floor as u32;
-        let bits = self.bits & mask | (floor_mask << (2 * item));
-        Self { bits, ..self }
+    const fn with_item(mut self, item: usize, floor: Floor) -> Self {
+        let mask = 0b11;
+        self.bits &= !(mask << (2 * item));
+        self.bits |= (floor as u32) << (2 * item);
+        self
     }
 
-    const fn with_next_round(self) -> Self {
-        let round = self.round + 1;
-        Self { round, ..self }
+    const fn with_next_round(mut self) -> Self {
+        self.round += 1;
+        self
     }
 
     /// Transform unto equivalent state, with elements sorted by floor positions.
     /// [G1 m1; G0 m0] is equivalent to [G0 m0; G1 m1], since the elements are interchangable, as long as the pairs stay together.
-    fn normalize(self) -> Self {
-        let n = self.count;
-        let mut pairs = [(Floor::First, Floor::First); 7];
-        for (i, pair) in pairs[0..n].iter_mut().enumerate() {
-            pair.0 = self.floor_of(i);
-            pair.1 = self.floor_of(n + i);
+    fn normalize(mut self) -> Self {
+        let n = self.material_count;
+        let mut gens_and_chips = [(Floor::First, Floor::First); 7];
+        for (material, (generator, chip)) in gens_and_chips[0..n].iter_mut().enumerate() {
+            *generator = self.floor_of(material);
+            *chip = self.floor_of(n + material);
         }
-        pairs[..n].sort_unstable();
-        let mut result = Self { bits: 0, ..self }.with_elevator(self.elevator_floor());
-        for (i, pair) in pairs[..n].iter().enumerate() {
-            result = result.with_item(i, pair.0);
-            result = result.with_item(n + i, pair.1);
+        gens_and_chips[..n].sort_unstable();
+        let elevator = self.elevator_floor();
+        self.bits = 0;
+        let mut result = self.with_elevator(elevator);
+        for (material, &(generator, chip)) in gens_and_chips[..n].iter().enumerate() {
+            result = result
+                .with_item(material, generator)
+                .with_item(n + material, chip);
         }
         result
     }
 
-    fn add_gen_and_chip(self) -> Self {
+    fn add_gen_and_chip(mut self) -> Self {
         let elevator = self.elevator_floor();
-        let n = self.count;
-        let mask = !(!0 << (2 * n));
-        let generators = self.bits & mask;
-        let chips = (self.bits >> (2 * n)) & mask;
-        let bits = generators | (chips << (2 * n + 2));
-        let count = n + 1;
-        Self {
-            bits,
-            count,
-            ..self
-        }
-        .with_elevator(elevator)
+        let n = self.material_count;
+        let mask = !(!0 << (2 * n)); // lowest 2n bits
+        let generators_part = self.bits & mask;
+        let chips_part = (self.bits >> (2 * n)) & mask;
+        self.bits = generators_part | (chips_part << (2 * n + 2));
+        self.material_count += 1;
+        self.with_elevator(elevator)
     }
 
     fn is_safe(self) -> bool {
         // Any uncoupled chips on floor with any generator, safed or not, is unsafe.
-        let n = self.count;
-        let mut gen_on = [false; 4];
-        for i in 0..n {
-            gen_on[self.floor_of(i) as usize] = true;
+        let n = self.material_count;
+        let mut floor_has_gen = [false; Floor::all().len()];
+        for generator in 0..n {
+            floor_has_gen[self.floor_of(generator) as usize] = true;
         }
-        (0..n).all(|i| {
-            let gen_floor = self.floor_of(i);
-            let chip_floor = self.floor_of(n + i);
-            gen_floor == chip_floor || !gen_on[chip_floor as usize]
+        (0..n).all(|material| {
+            let gen_floor = self.floor_of(material);
+            let chip_floor = self.floor_of(n + material);
+            gen_floor == chip_floor || !floor_has_gen[chip_floor as usize]
         })
     }
 
     fn is_completed(self) -> bool {
-        (0..=2 * self.count).all(|ix| self.floor_of(ix) == Floor::Fourth)
+        (0..=2 * self.material_count).all(|item| self.floor_of(item) == Floor::Fourth)
     }
 
-    fn moves(self, queue: &mut VecDeque<Self>) {
-        let n = self.count * 2;
+    fn enqueue_moves(self, queue: &mut VecDeque<Self>) {
+        let item_count = self.material_count * 2;
         let elevator = self.elevator_floor();
         for new_floor in [elevator.up(), elevator.down()].into_iter().flatten() {
-            for i in 0..n {
-                if self.floor_of(i) != elevator {
+            for item1 in 0..item_count {
+                if self.floor_of(item1) != elevator {
                     continue;
                 }
                 // Move single item
                 let new_state = self
                     .with_next_round()
                     .with_elevator(new_floor)
-                    .with_item(i, new_floor);
+                    .with_item(item1, new_floor);
                 if new_state.is_safe() {
                     queue.push_back(new_state);
                 }
-                for j in i + 1..n {
-                    if self.floor_of(j) != elevator {
+                for item2 in item1 + 1..item_count {
+                    if self.floor_of(item2) != elevator {
                         continue;
                     }
                     // Move two items
-                    let new_state = new_state.with_item(j, new_floor);
+                    let new_state = new_state.with_item(item2, new_floor);
                     if new_state.is_safe() {
                         queue.push_back(new_state);
                     }
@@ -289,33 +294,33 @@ impl State {
 
 impl Debug for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elevator = self.elevator_floor() as u32;
-        let n = self.count;
+        let elevator = self.elevator_floor();
+        let n = self.material_count;
         write!(f, "State({}; ", self.round)?;
-        for floor in 0..4 {
-            if floor > 0 {
+        for floor in Floor::all() {
+            if floor > Floor::First {
                 write!(f, "; ")?;
             }
-            let mut sep = if floor == elevator {
+            let mut write_sep = if floor == elevator {
                 write!(f, "[]")?;
                 true
             } else {
                 false
             };
-            for i in 0..self.count {
-                if self.floor_of(i) as u32 == floor {
-                    if sep {
+            for material in 0..self.material_count {
+                if self.floor_of(material) == floor {
+                    if write_sep {
                         write!(f, " ")?;
                     }
-                    sep = true;
-                    write!(f, "G{i}")?;
+                    write_sep = true;
+                    write!(f, "G{material}")?;
                 }
-                if self.floor_of(n + i) as u32 == floor {
-                    if sep {
+                if self.floor_of(n + material) == floor {
+                    if write_sep {
                         write!(f, " ")?;
                     }
-                    sep = true;
-                    write!(f, "m{i}")?;
+                    write_sep = true;
+                    write!(f, "m{material}")?;
                 }
             }
         }
@@ -368,7 +373,7 @@ fn solve(state: State) -> u8 {
         if state.is_completed() {
             return state.round;
         }
-        state.moves(&mut queue);
+        state.enqueue_moves(&mut queue);
     }
     0
 }
