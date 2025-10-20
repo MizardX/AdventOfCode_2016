@@ -269,6 +269,7 @@ impl State {
                 if self.floor_of(item1) != elevator {
                     continue;
                 }
+                let mut moved_single = false;
                 // Move single item
                 let new_state = self
                     .with_next_round()
@@ -276,6 +277,8 @@ impl State {
                     .with_item(item1, new_floor);
                 if new_state.is_safe() {
                     queue.push_back(new_state);
+                    if new_floor < elevator { continue; }
+                    moved_single = true;
                 }
                 for item2 in item1 + 1..item_count {
                     if self.floor_of(item2) != elevator {
@@ -284,6 +287,10 @@ impl State {
                     // Move two items
                     let new_state = new_state.with_item(item2, new_floor);
                     if new_state.is_safe() {
+                        if moved_single && new_floor > elevator {
+                            queue.pop_back();
+                            moved_single = false;
+                        }
                         queue.push_back(new_state);
                     }
                 }
