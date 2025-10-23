@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::fmt::Write;
 
+use smallvec::SmallVec;
+
 /// Iterator over hashes of `<seed> + <pos>`, with incrementing `pos`
 struct HashGenerator {
     ctx: md5::Context,
@@ -141,34 +143,45 @@ where
 
 /// Iterator over the password characters, in accordance to the puzzle description
 struct PasswordGenerator {
-    slow: HashGenerator,
-    fast: HashGenerator,
-    queue: VecDeque<(usize, u8)>,
-    verifications: [u16; 16],
     index: usize,
+    generator: HashGenerator,
+    window: VecDeque<(Option<u8>, SmallVec<[u8; 5]>)>,
+    verifications: [u16; 16],
 }
 
 impl PasswordGenerator {
     fn new(salt: &[u8], repeat_hashings: usize) -> Self {
-        let slow = HashGenerator::new(salt, repeat_hashings);
-        let mut fast = HashGenerator::new(salt, repeat_hashings);
+        let mut generator = HashGenerator::new(salt, repeat_hashings);
         let mut verifications = [0; 16];
-        let mut queue = VecDeque::new();
-        for (i, hash) in fast.by_ref().take(1000).enumerate() {
-            for nib5 in
-                Chunked::new(Nibs::new(&hash)).filter_map(|(n, nib)| (n >= 5).then_some(nib))
-            {
-                verifications[nib5 as usize] += 1;
-                queue.push_back((i, nib5));
-            }
-        }
+        let window = generator
+            .by_ref()
+            .take(1000)
+            .map(|hash| Self::hash_into_nibs35(hash, &mut verifications))
+            .collect();
         Self {
             index: 0,
-            slow,
-            fast,
-            queue,
+            generator,
+            window,
             verifications,
         }
+    }
+
+    fn hash_into_nibs35(
+        hash: [u8; 16],
+        verifications: &mut [u16; 16],
+    ) -> (Option<u8>, SmallVec<[u8; 5]>) {
+        let mut nib3 = None;
+        let mut nibs5 = SmallVec::<[u8; 5]>::new();
+        for (size, nib) in Chunked::new(Nibs::new(&hash)) {
+            if nib3.is_none() && size >= 3 {
+                nib3 = Some(nib);
+            }
+            if size >= 5 {
+                nibs5.push(nib);
+                verifications[nib as usize] += 1;
+            }
+        }
+        (nib3, nibs5)
     }
 }
 
@@ -177,28 +190,21 @@ impl Iterator for PasswordGenerator {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            while let Some(&(j, nib5)) = self.queue.front()
-                && j <= self.index
-            {
-                self.queue.pop_front().unwrap();
+            let (nib3, nibs5) = self.window.pop_front().unwrap();
+            for nib5 in nibs5 {
                 self.verifications[nib5 as usize] -= 1;
             }
-            let hash1 = self.slow.next()?;
-            let hash2 = self.fast.next()?;
-            let to_yield = Chunked::new(Nibs::new(&hash1))
-                .find(|&(n, _)| n >= 3)
-                .and_then(|(_, nib3)| {
-                    (self.verifications[nib3 as usize] > 0).then_some((nib3, self.index))
-                });
-            for nib5 in
-                Chunked::new(Nibs::new(&hash2)).filter_map(|(n, nib)| (n >= 5).then_some(nib))
-            {
-                self.verifications[nib5 as usize] += 1;
-                self.queue.push_back((self.index + 1000, nib5));
-            }
+            self.window.push_back(
+                self.generator
+                    .next()
+                    .map(|hash| Self::hash_into_nibs35(hash, &mut self.verifications))
+                    .unwrap(),
+            );
             self.index += 1;
-            if to_yield.is_some() {
-                return to_yield;
+            if let Some(nib3) = nib3
+                && self.verifications[nib3 as usize] > 0
+            {
+                return Some((nib3, self.index - 1));
             }
         }
     }
