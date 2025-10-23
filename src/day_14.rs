@@ -4,14 +4,14 @@ use std::fmt::Write;
 use smallvec::SmallVec;
 
 /// Iterator over hashes of `<seed> + <pos>`, with incrementing `pos`
-struct HashGenerator {
+struct NibbleGenerator {
     ctx: md5::Context,
     buf: String,
     pos: u64,
     repeat_hashings: usize,
 }
 
-impl HashGenerator {
+impl NibbleGenerator {
     fn new(input: &[u8], repeat_hashings: usize) -> Self {
         let mut ctx = md5::Context::new();
         ctx.consume(input);
@@ -24,13 +24,51 @@ impl HashGenerator {
             repeat_hashings,
         }
     }
+
+    fn count_nibbles(hash: [u8; 16]) -> (Option<u8>, SmallVec<[u8; 5]>) {
+        let mut count = 0;
+        let mut prev = 99;
+        let mut nib3 = None;
+        let mut nibs5 = SmallVec::new();
+        for nib in hash.into_iter().flat_map(|b| [b >> 4, b & 0xF]) {
+            if nib == prev {
+                count += 1;
+            } else {
+                if count >= 3 && nib3.is_none() {
+                    nib3 = Some(prev);
+                }
+                if count >= 5 {
+                    nibs5.push(prev);
+                }
+                prev = nib;
+                count = 1;
+            }
+        }
+        if count >= 3 && nib3.is_none() {
+            nib3 = Some(prev);
+        }
+        if count >= 5 {
+            nibs5.push(prev);
+        }
+        (nib3, nibs5)
+    }
+
+    fn into_hex(hash: [u8; 16]) -> [u8; 32] {
+        const HEX: &[u8] = b"0123456789abcdef";
+        let mut hex = [0; 32];
+        for (i, &byte) in hash.iter().enumerate() {
+            let (hi, lo) = (byte >> 4, byte & 0xF);
+            hex[2 * i] = HEX[hi as usize];
+            hex[2 * i + 1] = HEX[lo as usize];
+        }
+        hex
+    }
 }
 
-impl Iterator for HashGenerator {
-    type Item = [u8; 16];
+impl Iterator for NibbleGenerator {
+    type Item = (Option<u8>, SmallVec<[u8; 5]>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        const HEX: &[u8] = b"0123456789abcdef";
 
         self.buf.clear();
         write!(&mut self.buf, "{}", self.pos).unwrap();
@@ -41,122 +79,35 @@ impl Iterator for HashGenerator {
         let mut hash = ctx.finalize().0;
 
         for _ in 0..self.repeat_hashings {
-            let mut hex = [0; 32];
-            for (i, nib) in Nibs::new(&hash).enumerate() {
-                hex[i] = HEX[nib as usize];
-            }
             let mut ctx = md5::Context::new();
-            ctx.consume(hex);
+            ctx.consume(Self::into_hex(hash));
             hash = ctx.finalize().0;
         }
 
-        Some(hash)
-    }
-}
-
-/// Iterator over the "nibs" (4-bit chunks) of a `[u8]`
-struct Nibs<'a> {
-    data: &'a [u8],
-    index: usize,
-    low: bool,
-}
-
-impl<'a> Nibs<'a> {
-    const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data,
-            index: 0,
-            low: false,
-        }
-    }
-}
-
-impl Iterator for Nibs<'_> {
-    type Item = u8;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(&byte) = self.data.get(self.index) {
-            if self.low {
-                self.index += 1;
-                self.low = false;
-                Some(byte & 0xF)
-            } else {
-                self.low = true;
-                Some(byte >> 4)
-            }
-        } else {
-            None
-        }
-    }
-}
-
-/// Iterator over chunks of consecutive duplicate items.
-struct Chunked<I, T> {
-    source: I,
-    current: T,
-    count: usize,
-}
-
-impl<I, T> Chunked<I, T>
-where
-    I: Iterator<Item = T>,
-    T: Default,
-{
-    fn new(source: I) -> Self {
-        Self {
-            source,
-            current: T::default(),
-            count: 0,
-        }
-    }
-}
-
-impl<I, T> Iterator for Chunked<I, T>
-where
-    I: Iterator<Item = T>,
-    T: Default + Copy + PartialEq,
-{
-    type Item = (usize, T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for next in self.source.by_ref() {
-            if next == self.current {
-                self.count += 1;
-            } else {
-                let item = (self.count, self.current);
-                self.current = next;
-                self.count = 1;
-                if item.0 > 0 {
-                    return Some(item);
-                }
-            }
-        }
-        if self.count > 0 {
-            let item = (self.count, self.current);
-            self.current = T::default();
-            self.count = 0;
-            return Some(item);
-        }
-        None
+        Some(Self::count_nibbles(hash))
     }
 }
 
 /// Iterator over the password characters, in accordance to the puzzle description
 struct PasswordGenerator {
     index: usize,
-    generator: HashGenerator,
+    generator: NibbleGenerator,
     window: VecDeque<(Option<u8>, SmallVec<[u8; 5]>)>,
     verifications: [u16; 16],
 }
 
 impl PasswordGenerator {
     fn new(salt: &[u8], repeat_hashings: usize) -> Self {
-        let mut generator = HashGenerator::new(salt, repeat_hashings);
+        let mut generator = NibbleGenerator::new(salt, repeat_hashings);
         let mut verifications = [0; 16];
         let window = generator
             .by_ref()
             .take(1000)
-            .map(|hash| Self::hash_into_nibs35(hash, &mut verifications))
+            .inspect(|(_, nibs5)| {
+                for &nib5 in nibs5 {
+                    verifications[nib5 as usize] += 1;
+                }
+            })
             .collect();
         Self {
             index: 0,
@@ -164,24 +115,6 @@ impl PasswordGenerator {
             window,
             verifications,
         }
-    }
-
-    fn hash_into_nibs35(
-        hash: [u8; 16],
-        verifications: &mut [u16; 16],
-    ) -> (Option<u8>, SmallVec<[u8; 5]>) {
-        let mut nib3 = None;
-        let mut nibs5 = SmallVec::<[u8; 5]>::new();
-        for (size, nib) in Chunked::new(Nibs::new(&hash)) {
-            if nib3.is_none() && size >= 3 {
-                nib3 = Some(nib);
-            }
-            if size >= 5 {
-                nibs5.push(nib);
-                verifications[nib as usize] += 1;
-            }
-        }
-        (nib3, nibs5)
     }
 }
 
@@ -194,12 +127,13 @@ impl Iterator for PasswordGenerator {
             for nib5 in nibs5 {
                 self.verifications[nib5 as usize] -= 1;
             }
-            self.window.push_back(
-                self.generator
-                    .next()
-                    .map(|hash| Self::hash_into_nibs35(hash, &mut self.verifications))
-                    .unwrap(),
-            );
+
+            let (next_nib3, next_nibs5) = self.generator.next().unwrap();
+            for &nib5 in &next_nibs5 {
+                self.verifications[nib5 as usize] += 1;
+            }
+            self.window.push_back((next_nib3, next_nibs5));
+
             self.index += 1;
             if let Some(nib3) = nib3
                 && self.verifications[nib3 as usize] > 0
