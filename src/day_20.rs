@@ -1,5 +1,3 @@
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -13,7 +11,7 @@ enum ParseError {
     InvalidNumber(#[from] ParseIntError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Range(u32, u32);
 
 impl FromStr for Range {
@@ -27,70 +25,37 @@ impl FromStr for Range {
 
 #[aoc_generator(day20)]
 fn parse(s: &str) -> Result<Vec<Range>, ParseError> {
-    s.lines().map(str::parse).collect()
+    let mut blocked = s.lines().map(str::parse).collect::<Result<Vec<_>, _>>()?;
+    blocked.sort_unstable();
+    Ok(blocked)
 }
 
 #[aoc(day20, part1)]
 fn part_1(blocked: &[Range]) -> u32 {
-    let mut pending = blocked.to_vec();
-    pending.sort_unstable_by_key(|r| (r.0, Reverse(r.1)));
-
-    let mut open = BinaryHeap::<u32>::new();
-    let mut last_close = 0;
-    for range in pending {
-        while let Some(&end) = open.peek() {
-            if end <= range.0 {
-                last_close = last_close.max(end);
-                open.pop();
-            } else {
-                break;
-            }
+    let mut first_free = 0;
+    for range in blocked {
+        if first_free < range.0 {
+            return first_free;
         }
-        if open.is_empty() && last_close < range.0 {
-            return last_close;
-        }
-        open.push(range.1 + 1);
+        first_free = first_free.max(range.1 + 1);
     }
     0
 }
 
 #[aoc(day20, part2)]
 fn part_2(blocked: &[Range]) -> u64 {
-    count_nonblocked(blocked, u64::from(u32::MAX) + 1)
+    count_nonblocked(blocked, 1 << u32::BITS)
 }
 
 fn count_nonblocked(blocked: &[Range], max: u64) -> u64 {
     let mut count_nonblocked = 0;
-    let mut pending = blocked.to_vec();
-    pending.sort_unstable_by_key(|r| (r.0, Reverse(r.1)));
 
-    let mut open = BinaryHeap::<u64>::new();
-    let mut last_close = 0;
-    for range in pending {
-        while let Some(&end) = open.peek() {
-            if end <= u64::from(range.0) {
-                last_close = last_close.max(end);
-                open.pop();
-            } else {
-                break;
-            }
-        }
-        if open.is_empty() && last_close < u64::from(range.0) {
-            count_nonblocked += u64::from(range.0) - last_close;
-        }
-        open.push(u64::from(range.1) + 1);
+    let mut first_free = 0;
+    for range in blocked {
+        count_nonblocked += u64::from(range.0).saturating_sub(first_free);
+        first_free = first_free.max(u64::from(range.1) + 1);
     }
-    while let Some(&end) = open.peek() {
-        if end <= max {
-            last_close = last_close.max(end);
-            open.pop();
-        } else {
-            break;
-        }
-    }
-    if open.is_empty() && last_close < max {
-        count_nonblocked += max - last_close;
-    }
+    count_nonblocked += max.saturating_sub(first_free);
     count_nonblocked
 }
 
