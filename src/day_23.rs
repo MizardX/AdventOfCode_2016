@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::num::ParseIntError;
+use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
 use thiserror::Error;
@@ -134,25 +135,23 @@ fn parse(input: &str) -> Result<Vec<Instruction>, ParseError> {
 #[aoc(day23, part1)]
 fn part_1(instructions: &[Instruction]) -> isize {
     let mut machine = Machine::new(instructions);
-    // machine.set_register(Reg::A, 7);
+    // machine[Reg::A] = 7;
     // machine.run();
-    // machine.get_register(Reg::A)
-    machine.set_register(Reg::A, 6);
+    // machine[Reg::A]
+    machine[Reg::A] = 6;
     machine.run();
-    let delta = machine.get_register(Reg::A) - (1..=6).product::<isize>();
-    (1..=7).product::<isize>() + delta
+    machine[Reg::A] - (1..=6).product::<isize>() + (1..=7).product::<isize>()
 }
 
 #[aoc(day23, part2)]
 fn part_2(instructions: &[Instruction]) -> isize {
     let mut machine = Machine::new(instructions);
-    // machine.set_register(Reg::A, 12);
+    // machine[Reg::A] = 12;
     // machine.run();
-    // machine.get_register(Reg::A)
-    machine.set_register(Reg::A, 6);
+    // machine[Reg::A]
+    machine[Reg::A] = 6;
     machine.run();
-    let delta = machine.get_register(Reg::A) - (1..=6).product::<isize>();
-    (1..=12).product::<isize>() + delta
+    machine[Reg::A] - (1..=6).product::<isize>() + (1..=12).product::<isize>()
 }
 
 #[derive(Debug, Clone)]
@@ -173,17 +172,9 @@ impl Machine {
         }
     }
 
-    const fn get_register(&self, reg: Reg) -> isize {
-        self.registers[reg as usize]
-    }
-
-    const fn set_register(&mut self, reg: Reg, value: isize) {
-        self.registers[reg as usize] = value;
-    }
-
-    const fn get_value(&self, source: RegOrValue) -> isize {
+    fn get_value(&self, source: RegOrValue) -> isize {
         match source {
-            RegOrValue::Reg(reg) => self.get_register(reg),
+            RegOrValue::Reg(reg) => self[reg],
             RegOrValue::Value(v) => v,
         }
     }
@@ -195,17 +186,17 @@ impl Machine {
         match self.instructions[self.ip] {
             Instruction::Cpy(value, reg) => {
                 if let RegOrValue::Reg(reg) = reg {
-                    self.set_register(reg, self.get_value(value));
+                    self[reg] = self.get_value(value);
                 }
             }
             Instruction::Inc(reg) => {
                 if let RegOrValue::Reg(reg) = reg {
-                    self.set_register(reg, self.get_register(reg) + 1);
+                    self[reg] += 1;
                 }
             }
             Instruction::Dec(reg) => {
                 if let RegOrValue::Reg(reg) = reg {
-                    self.set_register(reg, self.get_register(reg) - 1);
+                    self[reg] -= 1;
                 }
             }
             Instruction::Jnz(condition, distance) => {
@@ -236,6 +227,20 @@ impl Machine {
         while !self.stopped {
             self.step();
         }
+    }
+}
+
+impl Index<Reg> for Machine {
+    type Output = isize;
+
+    fn index(&self, index: Reg) -> &Self::Output {
+        &self.registers[index as usize]
+    }
+}
+
+impl IndexMut<Reg> for Machine {
+    fn index_mut(&mut self, index: Reg) -> &mut Self::Output {
+        &mut self.registers[index as usize]
     }
 }
 
