@@ -1,4 +1,7 @@
-#![allow(unused, reason = "Library functions might or might not be used depending on each puzzle.")]
+#![allow(
+    unused,
+    reason = "Library functions might or might not be used depending on each puzzle."
+)]
 
 use std::collections::VecDeque;
 use std::mem::MaybeUninit;
@@ -67,6 +70,17 @@ impl<T: TilePath> Grid<T> {
         None
     }
 
+    pub fn all_shortest_paths<F>(
+        &self,
+        source: (usize, usize),
+        is_target: F,
+    ) -> impl Iterator<Item = (usize, &T)>
+    where
+        F: Fn(&T) -> bool,
+    {
+        AllShortestPathsIterator::new(self, is_target, source)
+    }
+
     fn enqueue_neighbors(&self, pos: (usize, usize), queue: &mut VecDeque<(usize, usize)>) {
         queue.extend(
             [
@@ -79,6 +93,58 @@ impl<T: TilePath> Grid<T> {
             .flatten()
             .filter(|&pos1| self[pos1].is_passable()),
         );
+    }
+}
+
+struct AllShortestPathsIterator<'a, T, F> {
+    grid: &'a Grid<T>,
+    visited: Grid<bool>,
+    pending: VecDeque<(usize, usize)>,
+    count_same_dist: usize,
+    distance: usize,
+    is_target: F,
+}
+
+impl<'a, T, F> AllShortestPathsIterator<'a, T, F>
+where
+    F: Fn(&T) -> bool,
+{
+    fn new(grid: &'a Grid<T>, is_target: F, source: (usize, usize)) -> Self {
+        Self {
+            grid,
+            visited: Grid::new(grid.rows, grid.cols),
+            pending: [source].into(),
+            count_same_dist: 1,
+            distance: 0,
+            is_target,
+        }
+    }
+}
+
+impl<'a, T, F> Iterator for AllShortestPathsIterator<'a, T, F>
+where
+    T: TilePath,
+    F: Fn(&T) -> bool,
+{
+    type Item = (usize, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(pos) = self.pending.pop_front() {
+            if self.count_same_dist == 0 {
+                self.distance += 1;
+                self.count_same_dist = self.pending.len() + 1;
+            }
+            self.count_same_dist -= 1;
+            if self.visited[pos] {
+                continue;
+            }
+            self.visited[pos] = true;
+            self.grid.enqueue_neighbors(pos, &mut self.pending);
+            if (self.is_target)(&self.grid[pos]) {
+                return Some((self.distance, &self.grid[pos]));
+            }
+        }
+        None
     }
 }
 

@@ -58,17 +58,17 @@ fn find_shortest_distance(grid: &Grid<Tile>, close_path: bool) -> usize {
 
     let distances: Vec<Vec<_>> = locations
         .iter()
-        .map(|&l1| {
-            locations
-                .iter()
-                .map(|&l2| {
-                    if l1 == l2 {
-                        None
-                    } else {
-                        grid.shortest_path(l1, l2)
-                    }
-                })
-                .collect()
+        .map(|&source| {
+            let mut dists = vec![None; locations.len()];
+            let is_target = |tile: &Tile| matches!(tile, Tile::Target(..));
+            for (dist, &target) in grid.all_shortest_paths(source, is_target) {
+                if let Tile::Target(target) = target
+                    && dist > 0
+                {
+                    dists[target as usize] = Some(dist);
+                }
+            }
+            dists
         })
         .collect();
 
